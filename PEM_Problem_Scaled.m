@@ -46,8 +46,17 @@ classdef PEM_Problem_Scaled < PROBLEM
         UB = [500, 100,  20000,   85,    30e5];   % Upper bounds
         
         %% ========== Design Requirements ==========
-        MIN_H2_RATE = 1.6971e-4;  % kg/s H2 (→ 60 L/min O2)
-        
+        %MIN_H2_RATE = 1.6971e-4;  % kg/s H2 (→ 60 L/min O2)
+        MIN_H2_RATE = 2.977e-5;  % kg/s H2 (→ 10 L/min O2)
+        %MIN_H2_RATE = 8.4855e-4;  % kg/s H2 (→ 300 L/min O2)
+        %MIN_H2_RATE = 1.4143e-4;  % kg/s H2 (→ 50 L/min O2)
+        %MIN_H2_RATE = 1.3577e-4;  % kg/s H2 (→ 48 L/min O2)
+
+%MIN_H2_RATE = 1.4143e-3;   % kg/s H2 (→ 500 L/min O2)
+%MIN_H2_RATE = 2.8285e-3;   % kg/s H2 (→ 1000 L/min O2)
+%MIN_H2_RATE = 2.8285e-2;   % kg/s H2 (→ 10000 L/min O2)
+%MIN_H2_RATE = 2.8285e-1;   % kg/s H2 (→ 100000 L/min O2)
+
         MIN_POWER   = 1000;       % Minimum stack power [W]
         MAX_POWER   = 300e3;      % Maximum stack power [W]
         MAX_VOLTAGE = 2.5;        % Maximum cell voltage [V]
