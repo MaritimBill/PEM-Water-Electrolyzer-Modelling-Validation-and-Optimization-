@@ -1,4 +1,4 @@
-%% ABLATION STUDY FOR FeaNSGA-II (CORRECTED)
+%% ABLATION STUDY FOR NSGAII_AdaptiveSearch
 clear; clc; close all;
 
 %% ========== SETTINGS ==========
@@ -8,18 +8,22 @@ maxFE = popSize * maxGen;
 numRuns = 30;  % 30 runs for statistical significance
 problemName = 'PEM_Problem_Scaled';
 
-% Define variants with FLAGS
+% Define variants with FLAGS for NSGAII_AdaptiveSearch
+%   use_adaptive  - adaptive mutation/crossover (linear decay)
+%   use_localsearch - local search on best feasible solution (3 perturbations)
+%   use_diversity  - diversity injection (random feasible if std crowding low)
+%   localFreq      - frequency of local search/diversity injection (if used)
 variants = {
-    'All components',           true,  true,  true,  true,  true,  true;
-    'No FeasibilityFirst',     false, true,  true,  true,  true,  true;
-    'No EliteArchive',          true, false, true,  true,  true,  true;
-    'No Immigrants',            true, true,  false, true,  true,  true;
-    'No IntegerRepair',         true, true,  true,  false, true,  true;
-    'Penalty Constraint',       true, true,  true,  true,  false, true;
-    'Random Immigrants',        true, true,  'rand', true,  true,  true;
-    'Aggressive Immigrants',    true, true,  0.20,  true,  true,  true;
-    'Conservative Immigrants',  true, true,  0.02,  true,  true,  true;
-    'Only FeasFirst',          false, false, false, true,  true,  false;
+    'Base NSGA-II',          false, false, false, 5;
+    'Adaptive only',          true, false, false, 5;
+    'Local Search only',     false,  true, false, 5;
+    'Diversity only',        false, false,  true, 5;
+    'Adaptive + Local',       true,  true, false, 5;
+    'Adaptive + Diversity',   true, false,  true, 5;
+    'Local + Diversity',     false,  true,  true, 5;
+    'All components',         true,  true,  true, 5;
+    'Frequent LS/DIV',        true,  true,  true, 3;  % more aggressive
+    'Rare LS/DIV',            true,  true,  true, 10; % less aggressive
 };
 
 nVariants = size(variants, 1);
@@ -44,7 +48,7 @@ variant_objs = cell(nVariants, 1);
 variant_times = cell(nVariants, 1);
 variant_feas = cell(nVariants, 1);
 
-fprintf('\n=== ABLATION STUDY: FeaNSGA-II ===\n');
+fprintf('\n=== ABLATION STUDY: NSGAII_AdaptiveSearch ===\n');
 fprintf('Variants: %d | Runs: %d | Generations: %d\n\n', nVariants, numRuns, maxGen);
 
 %% ========== MAIN LOOP ==========
@@ -53,22 +57,19 @@ for run = 1:numRuns
     rng(run*100, 'twister');
     
     for v = 1:nVariants
-        use_feas_first = variants{v,2};
-        use_archive = variants{v,3};
-        immigrant_mode = variants{v,4};
-        use_int_repair = variants{v,5};
-        use_feas_selector = variants{v,6};
-        use_archive_injection = variants{v,7};
+        use_adaptive  = variants{v,2};
+        use_localsearch = variants{v,3};
+        use_diversity = variants{v,4};
+        localFreq     = variants{v,5};
         
         try
             Problem = feval(problemName);
             Problem.N = popSize;
             Problem.maxFE = maxFE;
             
-            [objs, runtime, feas_count] = runFeaNSGA_II_with_flags(...
+            [objs, runtime, feas_count] = runNSGAII_AdaptiveSearch_with_flags(...
                 Problem, popSize, maxGen, ...
-                use_feas_first, use_archive, immigrant_mode, ...
-                use_int_repair, use_feas_selector, use_archive_injection);
+                use_adaptive, use_localsearch, use_diversity, localFreq);
             
             variant_objs{v}{run} = objs;
             variant_times{v}(run) = runtime;
@@ -221,7 +222,7 @@ hold on;
 errorbar(1:nVariants, hv_sorted, hv_std_sorted, 'k.', 'LineWidth', 1.2, 'MarkerSize', 10);
 
 % Add baseline reference line
-baseline_idx = find(strcmp(names_sorted, 'All components'));
+baseline_idx = find(strcmp(names_sorted, 'Base NSGA-II'));
 if ~isempty(baseline_idx)
     yline(hv_sorted(baseline_idx), 'r--', 'LineWidth', 1.5);
     text(nVariants-2, hv_sorted(baseline_idx)*1.01, 'Baseline', 'Color', 'r', 'FontSize', 10);
@@ -262,7 +263,7 @@ title('Ablation Study: IGD Comparison', 'FontSize', 14, 'FontWeight', 'bold');
 set(gca, 'XTick', 1:nVariants, 'XTickLabel', names_sorted_igd, 'XTickLabelRotation', 45);
 grid on;
 
-sgtitle('FeaNSGA-II Ablation Study: Performance Metrics', 'FontSize', 16, 'FontWeight', 'bold');
+sgtitle('NSGAII_AdaptiveSearch Ablation: Performance Metrics', 'FontSize', 16, 'FontWeight', 'bold');
 
 %% ========== FIGURE 2: BOXPLOT OF HV DISTRIBUTIONS ==========
 fig2 = figure('Position', [100, 100, 1000, 600], 'Color', 'white');
@@ -299,14 +300,15 @@ fig3 = figure('Position', [150, 150, 800, 600], 'Color', 'white');
 
 % Calculate impact matrix
 components = {
-    'Feasibility-first', 2;
-    'Elite Archive', 3;
-    'Periodic Immigrants', 4;
-    'Integer Repair', 5;
-    'Penalty Constraint', 6;
-    'Random Immigrants', 7;
-    'Aggressive (20%%)', 8;
-    'Conservative (2%%)', 9;
+    'Adaptive parameters',    2;
+    'Local Search',           3;
+    'Diversity Injection',    4;
+    'Adaptive+Local',         5;
+    'Adaptive+Diversity',     6;
+    'Local+Diversity',        7;
+    'All (Freq=5)',           8;
+    'Frequent (Freq=3)',      9;
+    'Rare (Freq=10)',         10;
 };
 
 nComp = length(components);
@@ -399,86 +401,89 @@ function cmap = redbluecmap()
             linspace(middle(3), bottom(3), n/2)'];
 end
 
-%% ==================== ALGORITHM FUNCTIONS ====================
+%% ==================== ALGORITHM FUNCTION ====================
 
-function [objs, runtime, feas_count] = runFeaNSGA_II_with_flags(...
-    Problem, N, maxGen, use_feas_first, use_archive, immigrant_mode, ...
-    use_int_repair, use_feas_selector, use_archive_injection)
+function [objs, runtime, feas_count] = runNSGAII_AdaptiveSearch_with_flags(...
+    Problem, N, maxGen, use_adaptive, use_localsearch, use_diversity, localFreq)
     
-    D = Problem.D;
+    % Parameters for adaptive operators
+    pm_init = 1 / Problem.D;
+    pm_final = 0.5 / Problem.D;
+    eta_c_init = 15;
+    eta_c_final = 30;
+    
     tic;
     
+    % Initial population
     Population = Problem.Initialization();
-    Population = repairAndEvaluate(Problem, Population, use_int_repair);
     [Population, FrontNo, CrowdDis] = EnvironmentalSelection(Population, N);
-    
-    Archive = [];
-    if use_archive
-        Archive = getFeasibleNondominated(Population);
-        if isempty(Archive), Archive = Population; end
-    end
     
     gen = 0;
     while gen < maxGen
-        CV = constraintViolation(Population);
+        gen = gen + 1;
+        progress = gen / maxGen;
         
-        if use_feas_first
-            MatingPool = zeros(1, N);
-            for i = 1:N
-                a = randi(N); b = randi(N);
-                MatingPool(i) = tournamentWinner(a, b, FrontNo, CrowdDis, CV);
-            end
+        % Adaptive parameters (if enabled)
+        if use_adaptive
+            pm = pm_init + (pm_final - pm_init) * progress;
+            eta_c = eta_c_init + (eta_c_final - eta_c_init) * progress;
         else
-            MatingPool = TournamentSelection(2, N, FrontNo, CrowdDis);
-        end
-        Parents = Population(MatingPool);
-        
-        if use_archive && use_archive_injection && ~isempty(Archive)
-            eliteNum = min(max(2, round(0.15*N)), numel(Archive));
-            eliteIdx = randi(numel(Archive), 1, eliteNum);
-            replaceIdx = randperm(N, eliteNum);
-            Parents(replaceIdx) = Archive(eliteIdx);
+            pm = 1 / Problem.D;        % fixed mutation
+            eta_c = 20;                % fixed crossover
         end
         
-        Offspring = OperatorGA(Problem, Parents);
-        Offspring = repairAndEvaluate(Problem, Offspring, use_int_repair);
+        % Mating and offspring
+        MatingPool = TournamentSelection(2, N, FrontNo, -CrowdDis);
+        Offspring = OperatorGA(Problem, Population(MatingPool), {1, eta_c, pm, 20});
         
-        if ischar(immigrant_mode) && strcmp(immigrant_mode, 'rand')
-            if rand < 0.3
-                k = max(2, round(0.08*N));
-                ImmDec = repmat(Problem.lower, k, 1) + rand(k, D) .* repmat(Problem.upper - Problem.lower, k, 1);
-                if D >= 2 && use_int_repair, ImmDec(:,2) = round(ImmDec(:,2)); end
-                ImmPop = Problem.Evaluation(ImmDec);
-                Offspring = [Offspring, ImmPop];
-            end
-        elseif isnumeric(immigrant_mode) && immigrant_mode > 0
-            if mod(gen, 10) == 0
-                k = max(2, round(immigrant_mode * N));
-                ImmDec = repmat(Problem.lower, k, 1) + rand(k, D) .* repmat(Problem.upper - Problem.lower, k, 1);
-                if D >= 2 && use_int_repair, ImmDec(:,2) = round(ImmDec(:,2)); end
-                ImmPop = Problem.Evaluation(ImmDec);
-                Offspring = [Offspring, ImmPop];
-            end
-        elseif immigrant_mode == true
-            if mod(gen, 10) == 0
-                k = max(2, round(0.08*N));
-                ImmDec = repmat(Problem.lower, k, 1) + rand(k, D) .* repmat(Problem.upper - Problem.lower, k, 1);
-                if D >= 2 && use_int_repair, ImmDec(:,2) = round(ImmDec(:,2)); end
-                ImmPop = Problem.Evaluation(ImmDec);
-                Offspring = [Offspring, ImmPop];
-            end
-        end
-        
+        % Environmental selection (original)
         [Population, FrontNo, CrowdDis] = EnvironmentalSelection([Population, Offspring], N);
         
-        if use_archive
-            NewArchive = getFeasibleNondominated(Population);
-            if ~isempty(NewArchive)
-                Archive = mergeArchive(Archive, NewArchive, N);
+        % --- Local search and diversity injection (if enabled) ---
+        if use_localsearch || use_diversity
+            if mod(gen, localFreq) == 0
+                % Local search on best feasible (if enabled)
+                if use_localsearch
+                    feasible = all(Population.cons <= 1e-6, 2);
+                    if any(feasible)
+                        % Best feasible by sum of objectives
+                        [~, bestIdx] = min(sum(Population(feasible).objs, 2));
+                        bestSol = Population(feasible(bestIdx));
+                        
+                        % 3 random perturbations (2% of range)
+                        for step = 1:3
+                            perturb = 0.02 * (Problem.upper - Problem.lower) .* (2*rand(1, Problem.D) - 1);
+                            newDec = bestSol.decs + perturb;
+                            newDec = max(Problem.lower, min(Problem.upper, newDec));
+                            newSol = Problem.Evaluation(newDec);
+                            if all(newSol.cons <= 1e-6) && sum(newSol.objs) < sum(bestSol.objs)
+                                bestSol = newSol;
+                            end
+                        end
+                        % Replace worst (by crowding) in the last front
+                        worstFront = find(FrontNo == max(FrontNo));
+                        [~, worstRank] = sort(CrowdDis(worstFront));
+                        Population(worstFront(worstRank(1))) = bestSol;
+                    end
+                end
+                
+                % Diversity injection (if enabled)
+                if use_diversity
+                    validCrowd = CrowdDis(~isinf(CrowdDis) & ~isnan(CrowdDis));
+                    if ~isempty(validCrowd) && std(validCrowd) < 0.05 * mean(validCrowd)
+                        worstFront = find(FrontNo == max(FrontNo));
+                        for k = 1:2
+                            randDec = Problem.lower + rand(1, Problem.D) .* (Problem.upper - Problem.lower);
+                            randSol = Problem.Evaluation(randDec);
+                            if all(randSol.cons <= 1e-6)
+                                [~, worstRank] = sort(CrowdDis(worstFront));
+                                Population(worstFront(worstRank(1))) = randSol;
+                            end
+                        end
+                    end
+                end
             end
         end
-        
-        gen = gen + 1;
     end
     
     runtime = toc;
@@ -490,81 +495,5 @@ function [objs, runtime, feas_count] = runFeaNSGA_II_with_flags(...
         feas_count = sum(feasible);
     else
         feas_count = length(Population);
-    end
-end
-
-function Pop = repairAndEvaluate(Problem, Pop, use_int_repair)
-    if isempty(Pop), return; end
-    Dec = Pop.decs;
-    LB = Problem.lower;
-    UB = Problem.upper;
-    Dec = max(repmat(LB, size(Dec,1), 1), min(repmat(UB, size(Dec,1), 1), Dec));
-    if use_int_repair && size(Dec,2) >= 2
-        Dec(:,2) = round(Dec(:,2));
-        Dec(:,2) = max(LB(2), min(UB(2), Dec(:,2)));
-    end
-    bad = any(~isfinite(Dec),2);
-    if any(bad)
-        m = sum(bad);
-        Dec(bad,:) = repmat(LB, m, 1) + rand(m, Problem.D) .* repmat(UB-LB, m, 1);
-        if use_int_repair && size(Dec,2) >= 2
-            Dec(bad,2) = round(Dec(bad,2));
-        end
-    end
-    Pop = Problem.Evaluation(Dec);
-end
-
-function CV = constraintViolation(Pop)
-    if isempty(Pop), CV = []; return; end
-    Con = Pop.cons;
-    if isempty(Con), CV = zeros(numel(Pop),1);
-    else, CV = sum(max(0,Con),2); end
-end
-
-function winner = tournamentWinner(a, b, FrontNo, CrowdDis, CV)
-    feasA = CV(a) <= 1e-12;
-    feasB = CV(b) <= 1e-12;
-    if feasA && ~feasB, winner = a;
-    elseif ~feasA && feasB, winner = b;
-    elseif feasA && feasB
-        if FrontNo(a) < FrontNo(b), winner = a;
-        elseif FrontNo(b) < FrontNo(a), winner = b;
-        else
-            if CrowdDis(a) > CrowdDis(b), winner = a;
-            else, winner = b; end
-        end
-    else
-        if CV(a) < CV(b), winner = a;
-        else, winner = b; end
-    end
-end
-
-function Feas = isFeasible(Pop)
-    if isempty(Pop), Feas = false(0,1); return; end
-    Con = Pop.cons;
-    if isempty(Con), Feas = true(numel(Pop),1);
-    else, Feas = all(Con <= 1e-12, 2); end
-end
-
-function Archive = getFeasibleNondominated(Pop)
-    Feas = isFeasible(Pop);
-    Archive = Pop(Feas);
-    if isempty(Archive), return; end
-    [FrontNo,~] = NDSort(Archive.objs,1);
-    Archive = Archive(FrontNo == 1);
-end
-
-function Archive = mergeArchive(A, B, N)
-    Archive = [A, B];
-    if isempty(Archive), return; end
-    Feas = isFeasible(Archive);
-    Archive = Archive(Feas);
-    if isempty(Archive), return; end
-    [FrontNo,~] = NDSort(Archive.objs,1);
-    Archive = Archive(FrontNo == 1);
-    cap = max(3, 5*N);
-    if numel(Archive) > cap
-        idx = randperm(numel(Archive), cap);
-        Archive = Archive(idx);
     end
 end
