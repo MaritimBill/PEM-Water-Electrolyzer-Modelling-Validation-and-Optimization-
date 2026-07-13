@@ -6,7 +6,7 @@ clear; clc; close all;
 popSize = 100;
 maxGen  = 100;
 maxFE   = popSize * maxGen;
-numRuns = 30; % Number of independent runs
+numRuns = 10; % Number of independent runs
 
 fprintf('========================================\n');
 fprintf('FULL MOEA BENCHMARK SUITE\n');
@@ -22,24 +22,28 @@ else
 end
 
 %% ALGORITHMS (16 TOTAL)
-algorithms = {'NSGAII','NSGAIII','ANSGAIII','GDE3','MOEAD','MOEADDE','MOEADSTM','PREA','RVEA','RSEA','SRA','KnEA','MOPSO','dMOPSO','IBEA','FeaNSGA_II'};
-displayNames = {'NSGA-II','NSGA-III','ANSGA-III','GDE3','MOEA/D','MOEA/D-DE','MOEA/D-STM','PREA','RVEA','RSEA','SRA','KnEA','MOPSO','dMOPSO','IBEA','FeaNSGA_II'};
+algorithms = {'NSGAII','NSGAIII','ANSGAIII','GDE3','MOEAD','MOEADDE','MOEADSTM','PREA','RVEA','RSEA','SRA','KnEA','SPEA2','dMOPSO','IBEA','NSGAII_AdaptiveSearch'};
+displayNames = {'NSGA-II','NSGA-III','ANSGA-III','GDE3','MOEA/D','MOEA/D-DE','MOEA/D-STM','PREA','RVEA','RSEA','SRA','KnEA','SPEA2','dMOPSO','IBEA','NSGAII_AdaptiveSearch'};
+
+
 
 %% PROBLEMS
 
 
 %% OPTIMIZED BENCHMARK SUITE (Removed slow WFG2)
 testProblems = {
-    'ZDT1',     
-    %'ZDT2',     
+    %'ZDT1',     
+    'ZDT2',     
     %'DT4',     
     %'DTLZ1',    
-    'DTLZ2',    
+    'DTLZ3',    
     %'DTLZ4',    
     %'UF1',      
     %'UF7',   
-    %'CF1',     
-    'WFG3'      
+    'CF1',     
+    'WFG3' ,
+    'WFG2' 
+
 };
 nObjectives = [2, 2, 2, 3, 3, 3, 2, 2, 2, 3];
 
@@ -331,19 +335,19 @@ fprintf('\n\n========================================\n');
 fprintf('STATISTICAL SIGNIFICANCE (Wilcoxon, α=0.05)\n');
 fprintf('========================================\n\n');
 
-% Compare FeaNSGA_II vs NSGA-II across all problems
+% Compare NSGAII_AdaptiveSearch vs NSGA-II across all problems
 for p = 1:nProbs
     probName = testProblems{p};
-    pem_hv = results.(probName).('FeaNSGA_II').HV;
+    pem_hv = results.(probName).('NSGAII_AdaptiveSearch').HV;
     nsga2_hv = results.(probName).('NSGAII').HV;
     
     valid_idx = pem_hv > 0 & nsga2_hv > 0;
     if sum(valid_idx) >= 10
         p_val = ranksum(pem_hv(valid_idx), nsga2_hv(valid_idx));
         if p_val < 0.05
-            fprintf('%s: FeaNSGA_II vs NSGA-II: p=%.4f (SIGNIFICANT)\n', probName, p_val);
+            fprintf('%s: NSGAII_AdaptiveSearch vs NSGA-II: p=%.4f (SIGNIFICANT)\n', probName, p_val);
         else
-            fprintf('%s: FeaNSGA_II vs NSGA-II: p=%.4f (not significant)\n', probName, p_val);
+            fprintf('%s: NSGAII_AdaptiveSearch vs NSGA-II: p=%.4f (not significant)\n', probName, p_val);
         end
     end
 end
