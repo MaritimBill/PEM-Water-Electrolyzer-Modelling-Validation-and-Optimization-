@@ -12,7 +12,7 @@ classdef PEM_Problem_Scaled < PROBLEM
 %
 % Objectives (MINIMIZE):
 %   f1: Specific energy consumption [kWh/kg H2]
-%   f2: Total active area [m²] (cost proxy)
+%   f2: Total active area [m²] with pressure scaling (cost proxy)
 %   f3: Membrane stress index (durability proxy)
 %
 % Constraints:
@@ -46,25 +46,32 @@ classdef PEM_Problem_Scaled < PROBLEM
         UB = [500, 100,  20000,   85,    30e5];   % Upper bounds
         
         %% ========== Design Requirements ==========
-        %MIN_H2_RATE = 1.6971e-4;  % kg/s H2 (→ 60 L/min O2)
-        MIN_H2_RATE = 2.977e-5;  % kg/s H2 (→ 10 L/min O2)
-        %MIN_H2_RATE = 8.4855e-4;  % kg/s H2 (→ 300 L/min O2)
-        %MIN_H2_RATE = 1.4143e-4;  % kg/s H2 (→ 50 L/min O2)
-        %MIN_H2_RATE = 1.3577e-4;  % kg/s H2 (→ 48 L/min O2)
-
-%MIN_H2_RATE = 1.4143e-3;   % kg/s H2 (→ 500 L/min O2)
-%MIN_H2_RATE = 2.8285e-3;   % kg/s H2 (→ 1000 L/min O2)
-%MIN_H2_RATE = 2.8285e-2;   % kg/s H2 (→ 10000 L/min O2)
-%MIN_H2_RATE = 2.8285e-1;   % kg/s H2 (→ 100000 L/min O2)
+        %MIN_H2_RATE = 1.6971e-4;  % kg/s H2 
+        %MIN_H2_RATE = 2.977e-5;  % kg/s H2
+        %MIN_H2_RATE = 8.4855e-4;  % kg/s H2 
+        %MIN_H2_RATE = 1.4143e-4;  % kg/s H2 
+        MIN_H2_RATE = 1.3577e-4;  % kg/s H2 
 
         MIN_POWER   = 1000;       % Minimum stack power [W]
         MAX_POWER   = 300e3;      % Maximum stack power [W]
         MAX_VOLTAGE = 2.5;        % Maximum cell voltage [V]
         MIN_VOLTAGE = 1.3;        % Minimum cell voltage [V]
         
+        %% ========== Cost Model Coefficients ==========
+        % Updated cost proxy includes pressure effects
+        % cost = k1 * N * A + k2 * (A * P)^0.7 + k3 * N * P
+        % 
+        % k1: Cell material cost coefficient [$/cell·cm²] (membranes, catalysts)
+        % k2: Structural containment cost coefficient [$/cm²·bar^0.7]
+        % k3: Pressure sealing cost coefficient [$/cell·bar]
+        k1 = 150;      % Cell material cost scaling
+        k2 = 0.1;      % Containment cost scaling (pressure effect)
+        k3 = 0.5;      % Pressure sealing cost scaling
+        
         %% ========== Reference Values for Normalization ==========
         REF_ENERGY = 50;        % Reference specific energy [kWh/kg]
         REF_AREA   = 1;         % Reference area [m²]
+        REF_COST   = 15000;     % Reference cost [USD] - for normalization
         REF_STRESS = 1;         % Reference stress index
     end
     
@@ -127,6 +134,7 @@ classdef PEM_Problem_Scaled < PROBLEM
             J_Acm2 = J_Am2 / 10000;       % Convert to [A/cm²]
             T_K = T_C + 273.15;           % Convert to [K]
             A_cell_m2 = A_cell_cm2 / 10000; % Convert to [m²]
+            P_bar = P_Pa / 1e5;            % Convert to [bar]
             
             %% ========== CALIBRATED PEM MODEL ==========
             % V_cell = E_rev + (RT/(αnF))·asinh(J/(2J₀)) + R_ohm·J + k_conc·J²
@@ -180,9 +188,42 @@ classdef PEM_Problem_Scaled < PROBLEM
             end
             F(1) = specific_energy;
             
-            % Objective 2: Total Active Area [m²] (Cost Proxy)
-            total_area = N_cells * A_cell_m2;
-            F(2) = total_area;
+            % Objective 2: Total Active Area with Pressure Scaling [m²] (Cost Proxy)
+            % Updated cost model: accounts for pressure effects on structural cost
+            % 
+            % Cost Components:
+            %   1. Cell materials (membranes, catalysts): scales linearly with N * A
+            %   2. Structural containment (endplates, compression): scales with (A * P)^0.7
+            %   3. Pressure sealing (gaskets, seals): scales with N * P
+            %
+            % The cost is returned in [m²-equivalent] units for consistency
+            % with the original formulation, where 1 m² ≈ $15,000 USD
+            
+            % Convert area from m² to cm² for cost calculation
+            A_cell_cm2 = A_cell_m2 * 10000;
+            
+            % Term 1: Cell materials (membranes, catalysts)
+            % Scales linearly with N_cells and A_cell
+            cell_material_cost = obj.k1 * N_cells * A_cell_cm2;
+            
+            % Term 2: Structural containment (endplates, compression bolts)
+            % Higher pressure requires thicker, more expensive containment
+            % Uses a power law scaling (0.7 exponent)
+            containment_cost = obj.k2 * (A_cell_cm2 * P_bar) ^ 0.7;
+            
+            % Term 3: Pressure sealing (gaskets, seals)
+            % Each cell requires sealing, higher pressure needs stronger seals
+            pressure_seal_cost = obj.k3 * N_cells * P_bar;
+            
+            % Total cost
+            total_cost = cell_material_cost + containment_cost + pressure_seal_cost;
+            
+            % Convert cost to [m²-equivalent] for consistency with original formulation
+            % Assume 1 m² ≈ $15,000 USD (based on literature)
+            cost_per_m2 = 15000;  % [USD/m²]
+            total_area_equivalent = total_cost / cost_per_m2;
+            
+            F(2) = total_area_equivalent;
             
             % Objective 3: Enhanced Stress/Durability Proxy
             % More realistic degradation model
