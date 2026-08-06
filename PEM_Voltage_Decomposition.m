@@ -1,4 +1,4 @@
-%% GENERATE SIMPLIFIED VOLTAGE DECOMPOSITION FIGURE (k_conc = 0)
+%% GENERATE VOLTAGE DECOMPOSITION FIGURE (k_conc = 0)
 % This script generates a 2-panel voltage decomposition figure with:
 %   Subplot 1: Cumulative voltage components (E_rev, η_act, η_ohm, η_conc)
 %   Subplot 4: Ohmic and concentration overpotentials
