@@ -1,4 +1,4 @@
-%% ========== FINAL PLOT: 3 SUBPLOTS (I‑V WIDER, TALLER) ==========
+%% ========== COMPLETE SCRIPT: VALIDATION + CSV EXPORT ==========
 % Load parameters (if not already in workspace)
 if ~exist('p_opt', 'var')
     if exist('PEM_fit_params.mat', 'file')
@@ -8,7 +8,7 @@ if ~exist('p_opt', 'var')
     end
 end
 
-% Load data
+% Load data - adjust path below to match your system!
 loads = load('C:\Users\Admin\Desktop\Electrolyzer-modelling-toolbox-master\electrolyzerModellingToolbox\DemoData\PEMData.mat');
 UIData = loads.UIData;
 area = 17.64;
@@ -111,8 +111,36 @@ xticks(ax3, 1:3); xticklabels(ax3, {'1', '2', '3'});
 ylim(ax3, [0, max(all_mape)*1.3]);
 set(ax3, 'FontSize', 12, 'LineWidth', 1.5);
 
-%% ----- Save figure -----
+%% ----- Save figure (PNG and PDF) -----
 saveas(gcf, 'PEM_Validation_3panels_wider.png');
 fprintf('✅ Figure saved as PEM_Validation_3panels_wider.png\n');
 print('PEM_Validation_3panels_wider', '-dpdf', '-bestfit');
 fprintf('✅ PDF saved as PEM_Validation_3panels_wider.pdf\n');
+
+%% ====== EXPORT DATA TO CSV ======
+% Open the CSV file for writing
+fid = fopen('PEM_Validation_Data.csv', 'w');
+% Write the header row
+fprintf(fid, 'Dataset,CurrentDensity_A_cm2,Voltage_Exp_V,Voltage_Pred_V,Error_V\n');
+
+for i = 1:3
+    % Retrieve data for the current dataset again
+    U_exp_i = UIData(i).U;
+    I_exp_i = UIData(i).I;
+    j_exp_i = I_exp_i / area;
+    U_pred_i = model(p_opt, j_exp_i);
+    
+    % Write each data point for this dataset (using 16 decimal places for high precision)
+    for k = 1:length(j_exp_i)
+        fprintf(fid, '%d,%.16f,%.16f,%.16f,%.16f\n', ...
+            i, ...
+            j_exp_i(k), ...
+            U_exp_i(k), ...
+            U_pred_i(k), ...
+            U_exp_i(k) - U_pred_i(k));  % Calculates Error_V (Exp - Pred)
+    end
+end
+
+% Close the file
+fclose(fid);
+fprintf('✅ CSV data saved as PEM_Validation_Data.csv\n');
