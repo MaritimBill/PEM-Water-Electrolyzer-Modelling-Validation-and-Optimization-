@@ -39,9 +39,12 @@ N_cells = 80;        % Representative stack size
 A_cell = 424;        % cm² (Pareto‑optimal value from balanced solution)
 I_f = j_range * A_cell;                     % Stack current [A]
 
+% Stoichiometry: 2H2O → 2H2 + O2
+% H2 production
 n_H2 = (N_cells * I_f) / (2 * F);          % H₂ production [mol/s]
 mass_H2_gph = n_H2 * 0.002016 * 3600 * 1000; % H₂ [g/h]
 
+% O2 production (1/2 of H2 by moles, but 8x by mass)
 n_O2 = n_H2 / 2;                            % O₂ production [mol/s]
 mass_O2_gph = n_O2 * 0.032 * 3600 * 1000;   % O₂ [g/h]
 vol_O2_Lpm = n_O2 * 22.414 * 60;            % O₂ flow rate [L/min]
@@ -53,22 +56,23 @@ cum_O2_kg = n_O2 * 0.032 * 3600 * 24;       % O₂ [kg/day]
 %% ========== FIGURE 4: FARADAY PRODUCTION (4 subplots) ==========
 fig4 = figure('Position', [100, 100, 1200, 700], 'Color', 'white');
 
-% Subplot 1: H₂ and O₂ production rates (g/h)
+% ----- Subplot 1: H₂ and O₂ production rates (g/h) -----
 subplot(2, 2, 1);
 hold on; box on; grid on;
 plot(j_range, mass_H2_gph, 'b-', 'LineWidth', 2.5, 'DisplayName', 'H₂ (g/h)');
 plot(j_range, mass_O2_gph, 'r-', 'LineWidth', 2.5, 'DisplayName', 'O₂ (g/h)');
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('Production Rate [g/h]', 'FontSize', 10);
-title('(a) H₂ and O₂ Production Rates', 'FontSize', 11, 'FontWeight', 'bold');
+title('(1) H₂ and O₂ Production Rates', 'FontSize', 11, 'FontWeight', 'bold');
 legend('Location', 'northwest', 'FontSize', 8);
 xlim([0, 2.0]);
-ylim([0, max(mass_H2_gph) * 1.1]);
+% KEY FIX: Set y-axis to show full O2 range
+ylim([0, max(mass_O2_gph) * 1.1]);
 
-% Subplot 2: O₂ flow rate (L/min) with 60 L/min target marked
+% ----- Subplot 2: O₂ flow rate (L/min) with 60 L/min target marked -----
 subplot(2, 2, 2);
-plot(j_range, vol_O2_Lpm, 'g-', 'LineWidth', 2.5);
-hold on;
+hold on; box on; grid on;
+plot(j_range, vol_O2_Lpm, 'g-', 'LineWidth', 2.5, 'DisplayName', 'O₂ Flow');
 % Find and mark the 60 L/min target
 idx_60 = find(vol_O2_Lpm >= 60, 1, 'first');
 if ~isempty(idx_60)
@@ -79,39 +83,55 @@ if ~isempty(idx_60)
 end
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('O₂ Flow Rate [L/min]', 'FontSize', 10);
-title('(b) Oxygen Flow Rate', 'FontSize', 11, 'FontWeight', 'bold');
-grid on; box on;
+title('(2) Oxygen Flow Rate', 'FontSize', 11, 'FontWeight', 'bold');
 xlim([0, 2.0]);
 ylim([0, max(vol_O2_Lpm) * 1.1]);
 
-% Subplot 3: Cumulative H₂ production (kg/day)
+% ----- Subplot 3: Cumulative H₂ production (kg/day) -----
 subplot(2, 2, 3);
+hold on; box on; grid on;
 plot(j_range, cum_H2_kg, 'b-', 'LineWidth', 2.5);
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('H₂ Production [kg/day]', 'FontSize', 10);
-title('(c) Cumulative H₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
-grid on; box on;
+title('(3) Cumulative H₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
 xlim([0, 2.0]);
 ylim([0, max(cum_H2_kg) * 1.1]);
 
-% Subplot 4: Cumulative O₂ production (kg/day)
+% ----- Subplot 4: Cumulative O₂ production (kg/day) -----
 subplot(2, 2, 4);
+hold on; box on; grid on;
 plot(j_range, cum_O2_kg, 'r-', 'LineWidth', 2.5);
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('O₂ Production [kg/day]', 'FontSize', 10);
-title('(d) Cumulative O₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
-grid on; box on;
+title('(4) Cumulative O₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
 xlim([0, 2.0]);
 ylim([0, max(cum_O2_kg) * 1.1]);
 
-% Main title
+% ----- Main Title -----
 sgtitle('Faraday-Based Production Analysis (4-Parameter Model, k_{conc} = 4×10^{-6})', ...
     'FontSize', 14, 'FontWeight', 'bold');
 
-% Save figure
+%% ========== SAVE FIGURE ==========
+% Save as PNG
 saveas(fig4, 'PEM_Faraday_Production.png');
 fprintf('✅ Figure saved as PEM_Faraday_Production.png\n');
 
-% Also save as PDF
+% Save as PDF
 print('PEM_Faraday_Production', '-dpdf', '-bestfit');
 fprintf('✅ PDF saved as PEM_Faraday_Production.pdf\n');
+
+%% ========== DISPLAY KEY VALUES ==========
+fprintf('\n========== FARADAY PRODUCTION SUMMARY ==========\n');
+fprintf('Stack configuration: %d cells, %d cm² each\n', N_cells, A_cell);
+fprintf('Maximum current density: %.2f A/cm²\n', 2.0);
+fprintf('\nAt 60 L/min O₂ target:\n');
+if ~isempty(idx_60)
+    fprintf('  Current density: %.3f A/cm²\n', j_range(idx_60));
+    fprintf('  H₂ production rate: %.1f g/h\n', mass_H2_gph(idx_60));
+    fprintf('  O₂ production rate: %.1f g/h\n', mass_O2_gph(idx_60));
+    fprintf('  H₂ production (24h): %.3f kg/day\n', cum_H2_kg(idx_60));
+    fprintf('  O₂ production (24h): %.3f kg/day\n', cum_O2_kg(idx_60));
+end
+fprintf('==========================================\n');
+
+fprintf('\n✅ All done!\n');
