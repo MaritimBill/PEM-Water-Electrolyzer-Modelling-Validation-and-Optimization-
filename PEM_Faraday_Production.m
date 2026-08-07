@@ -1,6 +1,7 @@
 %% FARADAY PRODUCTION ANALYSIS
 % PEM Electrolyzer Faraday-Based Production Plots
-% Uses validated parameters with k_conc = 0
+% Uses validated 4-parameter model with literature-derived bounds
+% k_conc = 4e-6 (literature-bounded)
 
 clear; clc; close all;
 
@@ -10,17 +11,19 @@ loads = load('C:\Users\Admin\Desktop\Electrolyzer-modelling-toolbox-master\elect
 UIData = loads.UIData;
 area = 17.64; % cm² (only used for validation, not needed for production curves)
 
-%% ========== MODEL PARAMETERS (k_conc = 0) ==========
-E_rev = 1.42;           % Reversible potential at 75°C [V]
-alpha = 0.449003;       % Transfer coefficient [-]
-j0 = 5.427630e-02;      % Exchange current density [A/cm²]
-R_ohm = 0.169489;       % Area-specific resistance [Ω·cm²]
-k_conc = 0;             % FIXED to zero
-n_e = 2;                % Number of electrons
+%% ========== MODEL PARAMETERS (4-PARAMETER, LITERATURE BOUNDS) ==========
+% Calibrated using fmincon with k_conc ∈ [0, 0.02]
+% Combined RMSE = 0.018986 V, R² = 0.986711
+E_rev = 1.42;               % Reversible potential at 75°C [V]
+alpha = 0.448938;           % Transfer coefficient [-]
+j0 = 5.428292e-02;          % Exchange current density [A/cm²]
+R_ohm = 0.169475;           % Area-specific resistance [Ω·cm²]
+k_conc = 4e-6;              % Concentration coefficient [V/(A/cm²)²]
+n_e = 2;                    % Number of electrons
 
-R = 8.314;              % Gas constant [J/(mol·K)]
-F = 96485;              % Faraday constant [C/mol]
-T = 348.15;             % 75°C [K]
+R = 8.314;                  % Gas constant [J/(mol·K)]
+F = 96485;                  % Faraday constant [C/mol]
+T = 348.15;                 % 75°C [K]
 
 %% ========== MODEL FUNCTION ==========
 model = @(j) E_rev + ...
@@ -41,7 +44,7 @@ mass_H2_gph = n_H2 * 0.002016 * 3600 * 1000; % H₂ [g/h]
 
 n_O2 = n_H2 / 2;                            % O₂ production [mol/s]
 mass_O2_gph = n_O2 * 0.032 * 3600 * 1000;   % O₂ [g/h]
-vol_O2_Lpm = n_O2 * 22.414 * 60;            % O₂ flow rate [L/min] (CORRECTED)
+vol_O2_Lpm = n_O2 * 22.414 * 60;            % O₂ flow rate [L/min]
 
 % Cumulative production over 24 hours
 cum_H2_kg = n_H2 * 0.002016 * 3600 * 24;    % H₂ [kg/day]
@@ -57,9 +60,10 @@ plot(j_range, mass_H2_gph, 'b-', 'LineWidth', 2.5, 'DisplayName', 'H₂ (g/h)');
 plot(j_range, mass_O2_gph, 'r-', 'LineWidth', 2.5, 'DisplayName', 'O₂ (g/h)');
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('Production Rate [g/h]', 'FontSize', 10);
-title('(1) H₂ and O₂ Production Rates', 'FontSize', 11, 'FontWeight', 'bold');
+title('(a) H₂ and O₂ Production Rates', 'FontSize', 11, 'FontWeight', 'bold');
 legend('Location', 'northwest', 'FontSize', 8);
 xlim([0, 2.0]);
+ylim([0, max(mass_H2_gph) * 1.1]);
 
 % Subplot 2: O₂ flow rate (L/min) with 60 L/min target marked
 subplot(2, 2, 2);
@@ -69,36 +73,45 @@ hold on;
 idx_60 = find(vol_O2_Lpm >= 60, 1, 'first');
 if ~isempty(idx_60)
     plot(j_range(idx_60), vol_O2_Lpm(idx_60), 'ro', 'MarkerSize', 10, 'LineWidth', 2);
-    text(j_range(idx_60)+0.05, vol_O2_Lpm(idx_60)+2, ...
+    text(j_range(idx_60)+0.03, vol_O2_Lpm(idx_60)+3, ...
         sprintf('60 L/min at J = %.3f A/cm²', j_range(idx_60)), ...
         'FontSize', 9, 'FontWeight', 'bold');
 end
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('O₂ Flow Rate [L/min]', 'FontSize', 10);
-title('(2) Oxygen Flow Rate', 'FontSize', 11, 'FontWeight', 'bold');
+title('(b) Oxygen Flow Rate', 'FontSize', 11, 'FontWeight', 'bold');
 grid on; box on;
 xlim([0, 2.0]);
+ylim([0, max(vol_O2_Lpm) * 1.1]);
 
 % Subplot 3: Cumulative H₂ production (kg/day)
 subplot(2, 2, 3);
 plot(j_range, cum_H2_kg, 'b-', 'LineWidth', 2.5);
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('H₂ Production [kg/day]', 'FontSize', 10);
-title('(3) Cumulative H₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
+title('(c) Cumulative H₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
 grid on; box on;
 xlim([0, 2.0]);
+ylim([0, max(cum_H2_kg) * 1.1]);
 
 % Subplot 4: Cumulative O₂ production (kg/day)
 subplot(2, 2, 4);
 plot(j_range, cum_O2_kg, 'r-', 'LineWidth', 2.5);
 xlabel('Current Density [A/cm²]', 'FontSize', 10);
 ylabel('O₂ Production [kg/day]', 'FontSize', 10);
-title('(4) Cumulative O₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
+title('(d) Cumulative O₂ Production (24 hours)', 'FontSize', 11, 'FontWeight', 'bold');
 grid on; box on;
 xlim([0, 2.0]);
+ylim([0, max(cum_O2_kg) * 1.1]);
 
-sgtitle('Faraday-Based Production Analysis (k_{conc} = 0)', 'FontSize', 14, 'FontWeight', 'bold');
+% Main title
+sgtitle('Faraday-Based Production Analysis (4-Parameter Model, k_{conc} = 4×10^{-6})', ...
+    'FontSize', 14, 'FontWeight', 'bold');
 
 % Save figure
 saveas(fig4, 'PEM_Faraday_Production.png');
-fprintf('✅ Figure 4 saved as PEM_Faraday_Production.png\n');
+fprintf('✅ Figure saved as PEM_Faraday_Production.png\n');
+
+% Also save as PDF
+print('PEM_Faraday_Production', '-dpdf', '-bestfit');
+fprintf('✅ PDF saved as PEM_Faraday_Production.pdf\n');
