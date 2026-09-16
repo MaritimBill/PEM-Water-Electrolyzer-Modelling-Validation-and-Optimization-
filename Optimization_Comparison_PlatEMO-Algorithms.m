@@ -77,10 +77,7 @@ for run = 1:numRuns
                 case 'dMOPSO',      Algorithm = dMOPSO();
                 case 'MOPSO',       Algorithm = MOPSO();
                 case 'PREA',        Algorithm = PREA();
-                case 'NSGAIIEnhanced',        Algorithm = NSGAIIEnhanced();
-                case 'NSGAII_Improved',        Algorithm = NSGAII_Improved();
-                    
-                    
+                                      
                 otherwise, error('Unknown algorithm: %s', algoName);
             end
             
