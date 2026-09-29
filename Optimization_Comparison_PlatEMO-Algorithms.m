@@ -6,7 +6,7 @@
 clear; clc; close all;
 
 popSize = 100; maxGen = 100; maxFE = popSize * maxGen;
-numRuns = 10;   % <<-- SET TO 30 for proper statistics
+numRuns = 30;   % <<-- SET TO 30 for proper statistics
 
 algorithms = {'NSGAII','NSGAIII','ANSGAIII','GDE3','MOEAD','MOEADDE','MOEADSTM',...
               'ARMOEA','RVEA','RSEA','SRA','KnEA','BCEIBEA','SPEA2','IBEA','NSGAII_AdaptiveSearch',...
