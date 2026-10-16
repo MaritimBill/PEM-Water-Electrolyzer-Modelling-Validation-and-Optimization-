@@ -1,7 +1,8 @@
 function build_PEM_Simulink()
-%BUILD_PEM_SIMULINK  Create PEM_Plant.slx from scratch (robust, verbose).
-%   Multi-strategy MATLAB Function script setter; forces compile between
-%   stages so ports are correct before wiring. Idempotent.
+%BUILD_PEM_SIMULINK  Create PEM_Plant.slx (electrochemistry only, 3 outputs).
+%   Model I/O:
+%       Inputs : A_cell_cm2, N_cells, J_Acm2, T_C, P_bar
+%       Outputs: V_cell, P_stack, m_H2
 
     mdl = 'PEM_Plant';
     fprintf('\n[build_PEM_Simulink] Building %s.slx ...\n', mdl);
@@ -10,18 +11,18 @@ function build_PEM_Simulink()
     if exist([mdl '.slx'], 'file'), delete([mdl '.slx']); end
     if exist([mdl '.mdl'], 'file'), delete([mdl '.mdl']); end
 
-    fprintf('  [1/6] Creating model skeleton...\n');
+    fprintf('  [1/5] Creating model skeleton...\n');
     new_system(mdl);
     load_system(mdl);
 
     set_param(mdl, ...
         'Solver',     'ode23t', ...
-        'StopTime',   '200', ...
+        'StopTime',   '1', ...
         'SaveOutput', 'on', ...
         'SaveFormat', 'Dataset', ...
         'SolverType', 'Variable-step');
 
-    % ---------- Inputs ----------
+    % ---------- Inputs (5) ----------
     inTags  = {'SIM_A','SIM_N','SIM_J','SIM_T','SIM_P'};
     inNames = {'A_cell_cm2','N_cells','J_Acm2','T_C_in','P_bar'};
     ypos = [30 100 170 240 310];
@@ -31,11 +32,12 @@ function build_PEM_Simulink()
             'Position', [30 ypos(k) 90 ypos(k)+30]);
     end
 
-    fprintf('  [2/6] Adding MATLAB Function block...\n');
+    % ---------- MATLAB Function block ----------
+    fprintf('  [2/5] Adding MATLAB Function block...\n');
     add_block('simulink/User-Defined Functions/MATLAB Function', ...
-        [mdl '/Electrochem'], 'Position', [200 60 380 300]);
+        [mdl '/Electrochem'], 'Position', [200 60 380 320]);
 
-    fprintf('  [3/6] Setting MATLAB Function script (multi-strategy)...\n');
+    fprintf('  [3/5] Setting MATLAB Function script...\n');
     code = makeElectrochemCode();
     ok = setMATLABFunctionScript(mdl, 'Electrochem', code);
 
@@ -46,92 +48,43 @@ function build_PEM_Simulink()
                '  makeElectrochemCode() in build_PEM_Simulink.m, then re-run.'], mdl);
     end
 
-    % Force recompile so the block exposes its 5 in / 5 out ports
-    fprintf('  [4/6] Compiling so port counts update...\n');
+    % Force recompile so the block exposes its 5 in / 3 out ports
+    fprintf('  [4/5] Compiling so port counts update...\n');
     try
         set_param(mdl, 'SimulationCommand', 'update');
     catch err
         fprintf('    (update warning, benign on first build: %s)\n', err.message);
     end
 
-    % Verify ports
     numIn  = numel(find_system([mdl '/Electrochem'], 'FindAll','on', ...
                               'LookUnderMasks','all','BlockType','Inport'));
     numOut = numel(find_system([mdl '/Electrochem'], 'FindAll','on', ...
                               'LookUnderMasks','all','BlockType','Outport'));
     fprintf('    Electrochem ports: %d in / %d out\n', numIn, numOut);
-    if numIn < 5 || numOut < 5
+    if numIn < 5 || numOut < 3
         close_system(mdl, 0);
-        error(['MATLAB Function block still has only %d in / %d out ports.\n' ...
-               '  Open %s.slx manually, open "Electrochem", and click Build.'], ...
+        error(['MATLAB Function block has %d in / %d out ports (need 5 / 3).\n' ...
+               '  Open %s.slx, open "Electrochem", click Build.'], ...
                numIn, numOut, mdl);
     end
 
-    fprintf('  [5/6] Wiring inputs, thermal loop, outputs...\n');
-
-    % ---- 5 inputs -> Electrochem ----
+    % ---------- Wire inputs -> Electrochem ----------
+    fprintf('  [5/5] Wiring inputs and outputs...\n');
     for k = 1:5
         add_line(mdl, sprintf('%s/1', inNames{k}), ...
                       sprintf('Electrochem/%d', k), 'autorouting', 'on');
     end
 
-    % ---- Thermal ODE:  C dT/dt = P_heat - h_cool*(T - T_cool) ----
-    add_block('simulink/Sources/Constant', [mdl '/T_cool_K'], ...
-        'Value','333.15','Position',[430 400 490 430]);
-    add_block('simulink/Sources/Constant', [mdl '/h_cool'], ...
-        'Value','200','Position',[430 450 490 480]);
-    add_block('simulink/Sources/Constant', [mdl '/C_th'], ...
-        'Value','50000','Position',[430 500 490 530]);
-
-    add_block('simulink/Signal Routing/From', [mdl '/From_T_K'], ...
-        'GotoTag','T_K','Position',[430 340 480 360]);
-
-    add_block('simulink/Math Operations/Sum', [mdl '/Sum_cool'], ...
-        'Inputs','+-','Position',[520 345 550 375]);
-    add_line(mdl,'From_T_K/1','Sum_cool/1','autorouting','on');
-    add_line(mdl,'T_cool_K/1','Sum_cool/2','autorouting','on');
-
-    add_block('simulink/Math Operations/Product', [mdl '/Prod_h'], ...
-        'Inputs','2','Position',[590 350 630 380]);
-    add_line(mdl,'Sum_cool/1','Prod_h/1','autorouting','on');
-    add_line(mdl,'h_cool/1','Prod_h/2','autorouting','on');
-
-    add_block('simulink/Math Operations/Sum', [mdl '/Sum_energy'], ...
-        'Inputs','+-','Position',[670 200 700 240]);
-    add_line(mdl,'Electrochem/5','Sum_energy/1','autorouting','on');
-    add_line(mdl,'Prod_h/1','Sum_energy/2','autorouting','on');
-
-    add_block('simulink/Math Operations/Math Function', [mdl '/Inv_Cth'], ...
-        'Operator','reciprocal','Position',[630 500 670 530]);
-    add_line(mdl,'C_th/1','Inv_Cth/1','autorouting','on');
-
-    add_block('simulink/Math Operations/Product', [mdl '/Prod_invC'], ...
-        'Inputs','2','Position',[740 205 780 235]);
-    add_line(mdl,'Sum_energy/1','Prod_invC/1','autorouting','on');
-    add_line(mdl,'Inv_Cth/1','Prod_invC/2','autorouting','on');
-
-    add_block('simulink/Continuous/Integrator', [mdl '/Int_T'], ...
-        'InitialCondition','333.15','Position',[820 200 860 240]);
-    add_line(mdl,'Prod_invC/1','Int_T/1','autorouting','on');
-
-    add_block('simulink/Signal Routing/Goto', [mdl '/Goto_T_K'], ...
-        'GotoTag','T_K','Position',[900 210 940 230]);
-    add_line(mdl,'Int_T/1','Goto_T_K/1','autorouting','on');
-
-    % ---- Outputs ----
-    add_block('simulink/Sinks/Out1',[mdl '/V_cell'],   'Position',[450  60 480  80]);
+    % ---------- Outputs (3) ----------
+    add_block('simulink/Sinks/Out1',[mdl '/V_cell'],  'Position',[450  80 480 100]);
     add_line(mdl,'Electrochem/1','V_cell/1','autorouting','on');
 
-    add_block('simulink/Sinks/Out1',[mdl '/P_stack'],  'Position',[450 120 480 140]);
-    add_line(mdl,'Electrochem/3','P_stack/1','autorouting','on');
+    add_block('simulink/Sinks/Out1',[mdl '/P_stack'], 'Position',[450 160 480 180]);
+    add_line(mdl,'Electrochem/2','P_stack/1','autorouting','on');
 
-    add_block('simulink/Sinks/Out1',[mdl '/m_H2'],     'Position',[450 180 480 200]);
-    add_line(mdl,'Electrochem/4','m_H2/1','autorouting','on');
+    add_block('simulink/Sinks/Out1',[mdl '/m_H2'],    'Position',[450 240 480 260]);
+    add_line(mdl,'Electrochem/3','m_H2/1','autorouting','on');
 
-    add_block('simulink/Sinks/Out1',[mdl '/T_cell_K'], 'Position',[980 210 1010 230]);
-    add_line(mdl,'Int_T/1','T_cell_K/1','autorouting','on');
-
-    fprintf('  [6/6] Saving...\n');
     save_system(mdl);
     fprintf('[build_PEM_Simulink] Done. Model: %s.slx\n\n', mdl);
 end
@@ -139,7 +92,7 @@ end
 % =====================================================================
 function code = makeElectrochemCode()
     code = strjoin({ ...
-        'function [V_cell, I_stack, P_stack, m_H2, P_heat] = fcn(A_cell_cm2, N_cells, J_Acm2, T_C, P_bar)'
+        'function [V_cell, P_stack, m_H2] = fcn(A_cell_cm2, N_cells, J_Acm2, T_C, P_bar)'
         '    F      = 96485;'
         '    R      = 8.314;'
         '    M_H2   = 2.016e-3;'
@@ -160,7 +113,6 @@ function code = makeElectrochemCode()
         '    I_stack  = J_Acm2 * A_cell_cm2;'
         '    P_stack  = N_cells * V_cell * I_stack;'
         '    m_H2     = N_cells * I_stack / (2*F) * M_H2;'
-        '    P_heat   = 0.25 * P_stack;'
         'end'}, newline);
 end
 
@@ -169,7 +121,7 @@ function ok = setMATLABFunctionScript(mdl, blockPath, scriptText)
     fullPath = [mdl '/' blockPath];
     ok = false;
 
-    % --- Strategy 0: force a compile so the inner chart exists ---
+    % --- Strategy 0: force compile so the inner chart exists ---
     try
         set_param(mdl, 'SimulationCommand', 'update');
         fprintf('    [setMFScript] pre-compile ok\n');
@@ -177,27 +129,23 @@ function ok = setMATLABFunctionScript(mdl, blockPath, scriptText)
         fprintf('    [setMFScript] pre-compile warning: %s\n', err.message);
     end
 
-    % --- Strategy 1: get_param(...MATLABFunctionConfiguration).Script = ... ---
+    % --- Strategy 1: MATLABFunctionConfiguration ---
     try
         cfg = get_param(fullPath, 'MATLABFunctionConfiguration');
         cfg.Script = scriptText;
-        fprintf('    [setMFScript] Strategy 1 (MATLABFunctionConfiguration) OK\n');
+        fprintf('    [setMFScript] Strategy 1 OK\n');
         ok = true;
         return;
     catch err1
         fprintf('    [setMFScript] Strategy 1 failed: %s\n', err1.message);
     end
 
-    % --- Strategy 2: sfroot.find by path ---
+    % --- Strategy 2: sfroot.find EMChart by path ---
     try
         rt = sfroot;
         charts = rt.find('-isa', 'Stateflow.EMChart');
-        fprintf('    [setMFScript] Strategy 2: found %d EMChart(s)\n', numel(charts));
         for i = 1:numel(charts)
-            p = charts(i).Path;
-            fprintf('      chart(%d).Path = %s\n', i, p);
-            % Simulink stores internally with backslash in some versions
-            pNorm = strrep(p, '\', '/');
+            pNorm = strrep(charts(i).Path, '\', '/');
             if strcmpi(pNorm, fullPath) || endsWith(pNorm, ['/' blockPath])
                 charts(i).Script = scriptText;
                 fprintf('    [setMFScript] Strategy 2 OK on chart %d\n', i);
@@ -205,25 +153,23 @@ function ok = setMATLABFunctionScript(mdl, blockPath, scriptText)
                 return;
             end
         end
-        fprintf('    [setMFScript] Strategy 2: no matching chart path.\n');
     catch err2
         fprintf('    [setMFScript] Strategy 2 failed: %s\n', err2.message);
     end
 
-    % --- Strategy 3: set_param on the config object ---
+    % --- Strategy 3: set_param on config object ---
     try
         cfg = get_param(fullPath, 'MATLABFunctionConfiguration');
         set_param(cfg, 'Script', scriptText);
-        fprintf('    [setMFScript] Strategy 3 (set_param on cfg) OK\n');
+        fprintf('    [setMFScript] Strategy 3 OK\n');
         ok = true;
         return;
     catch err3
         fprintf('    [setMFScript] Strategy 3 failed: %s\n', err3.message);
     end
 
-    % --- Strategy 4: close/reopen to force chart creation, then retry S2 ---
+    % --- Strategy 4: close/reopen then retry S2 ---
     try
-        fprintf('    [setMFScript] Strategy 4: close/reopen to force chart creation\n');
         save_system(mdl);
         close_system(mdl, 0);
         load_system(mdl);
