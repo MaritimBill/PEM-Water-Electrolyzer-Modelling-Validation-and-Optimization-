@@ -1,7 +1,36 @@
 %% ========================================================================
 %% COMPREHENSIVE 19-ALGORITHM COMPARISON + PER-ALGORITHM SIMULINK VALIDATION
+%% File: comparisonss.m   (lives at PlatEMO root, next to Algorithms/)
 %% ========================================================================
 clear; clc; close all;
+
+% ===================== PLATEMO PATH BOOTSTRAP =====================
+scriptDir = fileparts(mfilename('fullpath'));
+if isempty(scriptDir), scriptDir = pwd; end
+
+platemoRoot = scriptDir;
+
+if exist(fullfile(platemoRoot, 'Algorithms'), 'dir') ~= 7
+    error(['Could not locate PlatEMO root. Expected:\n' ...
+           '  %s\n' ...
+           '  with an "Algorithms" subfolder inside it.\n' ...
+           'Currently running from: %s'], platemoRoot, scriptDir);
+end
+
+addpath(genpath(platemoRoot));
+fprintf('PlatEMO root on path: %s\n', platemoRoot);
+
+assert(exist('ALGORITHM', 'class') == 8, 'ALGORITHM class not on path.');
+assert(exist('NSGAII', 'class') == 8, 'NSGAII not found.');
+assert(exist('PEM_Problem_Scaled', 'class') == 8, 'PEM_Problem_Scaled not found.');
+if exist('NSGAII_AdaptiveSearch', 'class') ~= 8
+    warning('NSGAII_AdaptiveSearch not found on path. Is it in PlatEMO/Sims/?');
+end
+if exist('PEM_Simulink_Wrapper', 'class') ~= 8
+    warning('PEM_Simulink_Wrapper not found on path. Is it in PlatEMO/Sims/?');
+end
+fprintf('Path OK.\n');
+% ==================================================================
 
 % ------------------------- CONFIG ----------------------------------------
 numRuns    = 1;       % <<<<< SET TO 30 FOR FULL STATISTICAL ANALYSIS
@@ -32,7 +61,6 @@ if numRuns < 5
 end
 fprintf('================================================================\n');
 
-% Storage
 hv_per_run     = cell(nAlgos, 1);
 igd_per_run    = cell(nAlgos, 1);
 gd_per_run     = cell(nAlgos, 1);
@@ -147,7 +175,6 @@ for run = 1:numRuns
                 feasible_count(a) = feasible_count(a) + n_feasible;
                 fprintf('ok (%d feasible, %.2fs)\n', n_feasible, runtime);
 
-                % -------- Per-algorithm Pareto front printout --------
                 if showPF
                     printParetoFront(displayNames{a}, objs_f, decs_f, maxPFrows);
                 end
@@ -161,7 +188,6 @@ for run = 1:numRuns
             total_time(a) = total_time(a) + runtime;
 
         catch err
-            % ----- Real error reporting (was previously silent) -----
             fprintf('ERROR: %s\n', err.message);
             if ~isempty(err.stack)
                 fprintf('         at %s (line %d)\n', ...
@@ -326,7 +352,7 @@ better_direction = {'higher', 'lower', 'lower', 'lower', 'lower'};
 
 if numRuns < 5
     fprintf('Skipped: numRuns = %d (< 5).\n', numRuns);
-    fprintf('Increase numRuns at the top of comps.m for Wilcoxon tests.\n');
+    fprintf('Increase numRuns at the top of comparisonss.m for Wilcoxon tests.\n');
 else
     for m = 1:length(metrics_names)
         metric_name    = metrics_names{m};
@@ -479,8 +505,6 @@ if ~isempty(SLW)
     algo_valid_meanM = nan(nAlgos,1);
     algo_valid_maxP  = nan(nAlgos,1);
     algo_valid_nPts  = zeros(nAlgos,1);
-    algo_valid_Tmin  = nan(nAlgos,1);
-    algo_valid_Tmax  = nan(nAlgos,1);
     algo_valid_time  = zeros(nAlgos,1);
 
     tAllSL = tic;
@@ -516,21 +540,19 @@ if ~isempty(SLW)
         fprintf('%s\n', header);
 
         relV = nan(nChk,1); relP = nan(nChk,1); relM = nan(nChk,1);
-        Ts   = nan(nChk,1);
 
         tA = tic;
         for k = 1:nChk
             d = pf_dec(chkIdx(k), :);
             m = P.CalculateMetrics(d);
             try
-                [V_sl, P_sl, m_sl, T_K_sl] = SLW.simulate(d(1), d(2), d(3), d(4), d(5));
+                [V_sl, P_sl, m_sl, ~] = SLW.simulate(d(1), d(2), d(3), d(4), d(5));
                 relV(k) = 100 * abs(V_sl - m.V_cell  ) / max(m.V_cell,   1);
                 relP(k) = 100 * abs(P_sl - m.P_stack ) / max(m.P_stack,  1);
                 relM(k) = 100 * abs(m_sl - m.mass_H2 ) / max(m.mass_H2,  1e-12);
-                Ts(k)   = T_K_sl;
 
-                line = sprintf('   [%2d/%2d]  V=%.4f V  P=%8.1f W  mH2=%.3e kg/s  T=%.2f K  |  dV=%.4f%%  dP=%.4f%%  dm=%.4f%%', ...
-                    k, nChk, V_sl, P_sl, m_sl, T_K_sl, relV(k), relP(k), relM(k));
+                line = sprintf('   [%2d/%2d]  V=%.4f V  P=%8.1f W  mH2=%.3e kg/s  |  dV=%.4f%%  dP=%.4f%%  dm=%.4f%%', ...
+                    k, nChk, V_sl, P_sl, m_sl, relV(k), relP(k), relM(k));
                 fprintf('%s\n', line);
             catch err
                 line = sprintf('   [%2d/%2d]  SL error: %s', k, nChk, err.message);
@@ -544,30 +566,26 @@ if ~isempty(SLW)
         algo_valid_meanM(a) = mean(relM, 'omitnan');
         algo_valid_maxP(a)  = max(relP,  [], 'omitnan');
         algo_valid_nPts(a)  = nChk;
-        algo_valid_Tmin(a)  = min(Ts, [], 'omitnan');
-        algo_valid_Tmax(a)  = max(Ts, [], 'omitnan');
         algo_valid_time(a)  = dt_a;
 
         line = sprintf('   --- mean |dV|=%.4f%%  |dP|=%.4f%%  |dm|=%.4f%%  max |dP|=%.4f%%', ...
             algo_valid_meanV(a), algo_valid_meanP(a), algo_valid_meanM(a), algo_valid_maxP(a));
         fprintf('%s\n', line);
 
-        line = sprintf('   --- T range [%.2f, %.2f] K   wall %.2f s', ...
-            algo_valid_Tmin(a), algo_valid_Tmax(a), dt_a);
+        line = sprintf('   --- wall %.2f s', dt_a);
         fprintf('%s\n', line);
     end
     dtAllSL = toc(tAllSL);
 
     fprintf('\n\n--- VALIDATION SUMMARY ---\n');
-    fprintf('%-22s %5s %10s %10s %10s   %-20s\n', ...
-        'Algorithm', 'Pts', 'mean dV', 'mean dP', 'mean dm', 'T_K range');
-    fprintf('%s\n', repmat('-', 86, 1));
+    fprintf('%-22s %5s %10s %10s %10s\n', ...
+        'Algorithm', 'Pts', 'mean dV', 'mean dP', 'mean dm');
+    fprintf('%s\n', repmat('-', 66, 1));
     for a = 1:nAlgos
         if algo_valid_nPts(a) > 0
-            line = sprintf('%-22s %5d %10.4f %10.4f %10.4f   [%.2f, %.2f]', ...
+            line = sprintf('%-22s %5d %10.4f %10.4f %10.4f', ...
                 displayNames{a}, algo_valid_nPts(a), ...
-                algo_valid_meanV(a), algo_valid_meanP(a), algo_valid_meanM(a), ...
-                algo_valid_Tmin(a), algo_valid_Tmax(a));
+                algo_valid_meanV(a), algo_valid_meanP(a), algo_valid_meanM(a));
             fprintf('%s\n', line);
         end
     end
@@ -754,9 +772,6 @@ fprintf('\nDone.\n');
 %% HELPER: print Pareto front of one algorithm
 %% ========================================================================
 function printParetoFront(name, objs, decs, maxRows)
-    % objs : [nFeasible x 3]  f1 (kWh/kg), f2 (m^2-equiv), f3 (stress)
-    % decs : [nFeasible x 5]  A_cm2, N, J_Am2, T_C, P_Pa
-
     ND   = NDSort(objs, size(objs,1)) == 1;
     pf_o = objs(ND, :);
     pf_d = decs(ND, :);
@@ -767,7 +782,6 @@ function printParetoFront(name, objs, decs, maxRows)
         return;
     end
 
-    % Sort by f1 (energy) for readability
     [~, idx] = sort(pf_o(:,1));
     pf_o = pf_o(idx,:);
     pf_d = pf_d(idx,:);
@@ -792,7 +806,6 @@ function printParetoFront(name, objs, decs, maxRows)
             pf_d(k,1), round(pf_d(k,2)), pf_d(k,3), pf_d(k,4), pf_d(k,5)/1e5);
     end
 
-    % Knee point (closest to ideal in normalized space)
     if nPf > 1
         mn = min(pf_o,[],1); mx = max(pf_o,[],1);
         pn = (pf_o - mn) ./ (mx - mn + 1e-12);
