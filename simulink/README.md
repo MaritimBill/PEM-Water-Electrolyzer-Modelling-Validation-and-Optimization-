@@ -18,7 +18,7 @@
 
 - Everything stock PlatEMO stays where it is. Do not copy algorithm
   files, `ALGORITHM.m`, `PROBLEM.m`, or any PlatEMO internals into `Sims/`.
-- `comps.m` sits at the PlatEMO root so `fileparts(mfilename('fullpath'))`
+- `comparison.m` sits at the PlatEMO root so `fileparts(mfilename('fullpath'))`
   resolves to the PlatEMO root directly.
 - `Sims/` is a subfolder of PlatEMO, added to the path by `genpath`. Its
   contents are the only files unique to this project.
