@@ -5,7 +5,6 @@
 clear; clc; close all;
 
 % ===================== PLATEMO PATH BOOTSTRAP =====================
-% comparisonss.m lives at the PlatEMO root, next to Algorithms/ and Problems/.
 scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir), scriptDir = pwd; end
 
@@ -483,6 +482,12 @@ end
 
 %% ========================================================================
 %% SIMULINK DIGITAL-TWIN VALIDATION (per-algorithm, live progress)
+%%
+%%  *** CORRECTED SECTION ***
+%%  The wrapper expects PHYSICAL engineering units [A cm^2, N cells,
+%%  J A/cm^2, T degC, P bar].  The decision variables in `d` are SCALED
+%%  to [0,1]^5 by PEM_Problem_Scaled.  We un-scale them here using
+%%  unscaleDecision() before calling SLW.simulate().
 %% ========================================================================
 fprintf('\n\n================ SIMULINK DIGITAL-TWIN VALIDATION =================\n');
 
@@ -507,6 +512,14 @@ if ~isempty(SLW)
     algo_valid_maxP  = nan(nAlgos,1);
     algo_valid_nPts  = zeros(nAlgos,1);
     algo_valid_time  = zeros(nAlgos,1);
+
+    % Print the un-scaling mapping once so the log shows what units
+    % are being fed to the wrapper.
+    [~, ~, info] = unscaleDecision(P, zeros(1,5));   %#ok<ASGLU>
+    fprintf('  Un-scaling:  phys = lb + d .* (ub - lb)\n');
+    fprintf('     lb = [%s]\n', num2str(info.lb, '%g '));
+    fprintf('     ub = [%s]\n', num2str(info.ub, '%g '));
+    fprintf('  (order: A_cm2, N_cells, J_Acm2, T_degC, P_bar)\n\n');
 
     tAllSL = tic;
     for a = 1:nAlgos
@@ -544,16 +557,25 @@ if ~isempty(SLW)
 
         tA = tic;
         for k = 1:nChk
-            d = pf_dec(chkIdx(k), :);
-            m = P.CalculateMetrics(d);
-            try
-                [V_sl, P_sl, m_sl, ~] = SLW.simulate(d(1), d(2), d(3), d(4), d(5));
-                relV(k) = 100 * abs(V_sl - m.V_cell  ) / max(m.V_cell,   1);
-                relP(k) = 100 * abs(P_sl - m.P_stack ) / max(m.P_stack,  1);
-                relM(k) = 100 * abs(m_sl - m.mass_H2 ) / max(m.mass_H2,  1e-12);
+            d = pf_dec(chkIdx(k), :);           % scaled, [0,1]^5
+            m = P.CalculateMetrics(d);          % internal un-scaling
 
-                line = sprintf('   [%2d/%2d]  V=%.4f V  P=%8.1f W  mH2=%.3e kg/s  |  dV=%.4f%%  dP=%.4f%%  dm=%.4f%%', ...
-                    k, nChk, V_sl, P_sl, m_sl, relV(k), relP(k), relM(k));
+            % ---- Un-scale d to physical engineering units ----
+            d_phys = unscaleDecision(P, d);
+
+            try
+                [V_sl, P_sl, m_sl] = SLW.simulate( ...
+                    d_phys(1), d_phys(2), d_phys(3), d_phys(4), d_phys(5));
+
+                relV(k) = 100 * abs(V_sl - m.V_cell  ) / max(abs(m.V_cell),   1);
+                relP(k) = 100 * abs(P_sl - m.P_stack ) / max(abs(m.P_stack),  1);
+                relM(k) = 100 * abs(m_sl - m.mass_H2 ) / max(abs(m.mass_H2),  1e-12);
+
+                line = sprintf(['   [%2d/%2d]  phys=[%7.3f %6.2f %6.3f %6.2f %6.2f]' ...
+                                '  V=%.4f V  P=%9.2f W  mH2=%.3e kg/s' ...
+                                '  |  dV=%.4f%%  dP=%.4f%%  dm=%.4f%%'], ...
+                    k, nChk, d_phys(1), d_phys(2), d_phys(3), d_phys(4), d_phys(5), ...
+                    V_sl, P_sl, m_sl, relV(k), relP(k), relM(k));
                 fprintf('%s\n', line);
             catch err
                 line = sprintf('   [%2d/%2d]  SL error: %s', k, nChk, err.message);
@@ -768,3 +790,93 @@ if ~isempty(failed_algos)
 end
 
 fprintf('\nDone.\n');
+
+%% ========================================================================
+%% LOCAL FUNCTIONS
+%% ========================================================================
+function [d_phys, ok, info] = unscaleDecision(P, d)
+%UNSCALEDECISION  Map a scaled decision vector in [0,1]^5 back to
+%   physical engineering units [A_cm2, N_cells, J_Acm2, T_degC, P_bar].
+%
+%   The problem class PEM_Problem_Scaled stores its bounds in one of
+%   several possible forms.  This helper tries them in order:
+%       1. P.lower / P.upper           (PlatEMO convention)
+%       2. P.lb    / P.ub
+%       3. P.A_min/P.A_max, P.N_min/P.N_max, ... (per-variable fields)
+%       4. [P.A_min ...] via a static method P.GetBounds()
+%       5. Fallback: assume d is already physical (with a warning).
+%
+%   Outputs:
+%       d_phys  physical decision vector (1x5)
+%       ok      true if un-scaling was performed from known bounds
+%       info    struct with fields .lb, .ub, .mode  (for logging)
+
+    d = d(:)';
+    info = struct('lb', [], 'ub', [], 'mode', '');
+
+    % ---- Strategy 1: lower / upper ----
+    if isprop(P, 'lower') && isprop(P, 'upper') && ...
+       numel(P.lower) >= 5 && numel(P.upper) >= 5
+        lb = P.lower(1:5);  ub = P.upper(1:5);
+        d_phys = lb + d .* (ub - lb);
+        info.lb = lb; info.ub = ub; info.mode = 'lower/upper';
+        ok = true; return;
+    end
+
+    % ---- Strategy 2: lb / ub ----
+    if isprop(P, 'lb') && isprop(P, 'ub') && ...
+       numel(P.lb) >= 5 && numel(P.ub) >= 5
+        lb = P.lb(1:5);  ub = P.ub(1:5);
+        d_phys = lb + d .* (ub - lb);
+        info.lb = lb; info.ub = ub; info.mode = 'lb/ub';
+        ok = true; return;
+    end
+
+    % ---- Strategy 3: per-variable _min / _max ----
+    names = {'A','N','J','T','P'};
+    lb = zeros(1,5); ub = zeros(1,5); found = true;
+    for i = 1:5
+        nm = names{i};
+        if isprop(P, [nm '_min']) && isprop(P, [nm '_max'])
+            lb(i) = P.([nm '_min']);
+            ub(i) = P.([nm '_max']);
+        else
+            found = false; break;
+        end
+    end
+    if found
+        d_phys = lb + d .* (ub - lb);
+        info.lb = lb; info.ub = ub; info.mode = 'per-variable';
+        ok = true; return;
+    end
+
+    % ---- Strategy 4: P.GetBounds() static method ----
+    try
+        [lb, ub] = P.GetBounds();
+        if numel(lb) >= 5 && numel(ub) >= 5
+            lb = lb(1:5); ub = ub(1:5);
+            d_phys = lb + d .* (ub - lb);
+            info.lb = lb; info.ub = ub; info.mode = 'GetBounds()';
+            ok = true; return;
+        end
+    catch
+    end
+
+    % ---- Fallback: does d already look physical? ----
+    % If any entry is outside [0,1] with meaningful margin, assume physical.
+    if any(d < -1e-6) || any(d > 1 + 1e-6)
+        warning('comparisonss:unscaleFallback', ...
+                ['Could not find bounds on PEM_Problem_Scaled; ' ...
+                 'assuming d is already physical.']);
+        d_phys = d;
+        info.mode = 'assumed-physical';
+        ok = false;
+        return;
+    end
+
+    % Nothing worked, and d looks scaled → cannot proceed
+    error('comparisonss:unscaleFailed', ...
+          ['Cannot determine how to un-scale the decision vector. ' ...
+           'Add explicit un-scaling in comparisonss.m or expose bounds ' ...
+           'on PEM_Problem_Scaled (lower/upper, lb/ub, or A_min/A_max...).']);
+end
